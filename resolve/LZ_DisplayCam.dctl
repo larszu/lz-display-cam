@@ -1,0 +1,370 @@
+// LZ Display Cam 1.0 - laesst eine saubere Bildschirmaufnahme aussehen, als haette eine
+// Handkamera das Display abgefilmt. Transform-DCTL fuer DaVinci Resolve Studio (ab 19.1).
+//
+// Anwenden: Edit- oder Color-Seite > Effekte > OpenFX > ResolveFX Color > DCTL, dann diese Datei waehlen.
+// (Nicht als LUT anwenden: dort steht die Zeit still, Wackeln und Rauschen bewegen sich nicht.)
+//
+// Modell, von der Bildflaeche zum Sensor:
+//   Panel   RGB-Streifen-LCD. Das Subpixel-Raster wird nicht aufgemalt, sondern mit dem Sensorraster
+//           verrechnet: das Moire entsteht als Schwebung und wandert mit Zoom und Perspektive.
+//   Flaeche Schwarzwert, matter Schleier, weiche Fensterspiegelung mit Parallaxe, Refresh-Streifen.
+//   Optik   Perspektive, Verzeichnung, Farbsaum, Schaerfentiefe, Fokuspumpen, Bloom, Vignette.
+//   Kamera  Handwackeln (1/f plus Tremor), Rolling Shutter je Zeile, Belichtung, Rauschen.
+// Gerechnet wird in linearem Licht (Gamma 2,2 rein und raus).
+
+DEFINE_UI_PARAMS(p_Format, Quellformat, DCTLUI_COMBO_BOX, 0, { FMT_FULL, FMT_169, FMT_1610, FMT_32, FMT_43, FMT_916 }, { Wie Timeline, 16x9, 16x10, 3x2, 4x3, 9x16 })
+DEFINE_UI_PARAMS(p_Zoom, Zoom, DCTLUI_SLIDER_FLOAT, 1.15, 0.15, 3.0, 0.01)
+DEFINE_UI_PARAMS(p_CX, Mitte X, DCTLUI_SLIDER_FLOAT, 0.5, -0.2, 1.2, 0.005)
+DEFINE_UI_PARAMS(p_CY, Mitte Y, DCTLUI_SLIDER_FLOAT, 0.5, -0.2, 1.2, 0.005)
+DEFINE_UI_PARAMS(p_TiltX, Kippen horizontal, DCTLUI_SLIDER_FLOAT, 0.12, -2.0, 2.0, 0.01)
+DEFINE_UI_PARAMS(p_TiltY, Kippen vertikal, DCTLUI_SLIDER_FLOAT, 0.06, -2.0, 2.0, 0.01)
+DEFINE_UI_PARAMS(p_Roll, Drehung, DCTLUI_SLIDER_FLOAT, -1.2, -20.0, 20.0, 0.1)
+DEFINE_UI_PARAMS(p_Shake, Handkamera, DCTLUI_SLIDER_FLOAT, 1.0, 0.0, 4.0, 0.05)
+DEFINE_UI_PARAMS(p_RS, Rolling Shutter, DCTLUI_SLIDER_FLOAT, 1.0, 0.0, 4.0, 0.05)
+DEFINE_UI_PARAMS(p_Seed, Variante, DCTLUI_SLIDER_INT, 1, 1, 99, 1)
+DEFINE_UI_PARAMS(p_Fps, Bildrate, DCTLUI_VALUE_BOX, 30.0)
+DEFINE_UI_PARAMS(p_Moire, Moire, DCTLUI_SLIDER_FLOAT, 1.0, 0.0, 4.0, 0.05)
+DEFINE_UI_PARAMS(p_PanelW, Panel Pixel Breite, DCTLUI_SLIDER_INT, 2560, 640, 7680, 16)
+DEFINE_UI_PARAMS(p_SensorW, Sensor Pixel Breite, DCTLUI_SLIDER_INT, 3840, 720, 8192, 16)
+DEFINE_UI_PARAMS(p_Glare, Spiegelung, DCTLUI_SLIDER_FLOAT, 1.0, 0.0, 4.0, 0.05)
+DEFINE_UI_PARAMS(p_GlareX, Spiegelung X, DCTLUI_SLIDER_FLOAT, 0.70, -0.5, 1.5, 0.01)
+DEFINE_UI_PARAMS(p_GlareY, Spiegelung Y, DCTLUI_SLIDER_FLOAT, 0.16, -0.5, 1.5, 0.01)
+DEFINE_UI_PARAMS(p_Black, Schwarzwert, DCTLUI_SLIDER_FLOAT, 1.0, 0.0, 4.0, 0.05)
+DEFINE_UI_PARAMS(p_Angle, Blickwinkel, DCTLUI_SLIDER_FLOAT, 1.0, 0.0, 3.0, 0.05)
+DEFINE_UI_PARAMS(p_Bands, Refresh Streifen, DCTLUI_SLIDER_FLOAT, 1.0, 0.0, 6.0, 0.05)
+DEFINE_UI_PARAMS(p_Soft, Fokus weich, DCTLUI_SLIDER_FLOAT, 1.0, 0.0, 6.0, 0.05)
+DEFINE_UI_PARAMS(p_Pump, Fokus pumpen, DCTLUI_SLIDER_FLOAT, 0.5, 0.0, 3.0, 0.05)
+DEFINE_UI_PARAMS(p_Bloom, Bloom, DCTLUI_SLIDER_FLOAT, 1.0, 0.0, 4.0, 0.05)
+DEFINE_UI_PARAMS(p_CA, Farbsaum, DCTLUI_SLIDER_FLOAT, 1.0, 0.0, 6.0, 0.05)
+DEFINE_UI_PARAMS(p_Dist, Verzeichnung, DCTLUI_SLIDER_FLOAT, 0.3, -2.0, 2.0, 0.01)
+DEFINE_UI_PARAMS(p_Vig, Vignette, DCTLUI_SLIDER_FLOAT, 1.0, 0.0, 3.0, 0.05)
+DEFINE_UI_PARAMS(p_Exp, Belichtung, DCTLUI_SLIDER_FLOAT, 0.0, -3.0, 3.0, 0.05)
+DEFINE_UI_PARAMS(p_Temp, Farbtemperatur, DCTLUI_SLIDER_FLOAT, 1.0, -4.0, 4.0, 0.05)
+DEFINE_UI_PARAMS(p_Sat, Saettigung, DCTLUI_SLIDER_FLOAT, 0.92, 0.0, 1.5, 0.01)
+DEFINE_UI_PARAMS(p_Noise, Rauschen, DCTLUI_SLIDER_FLOAT, 1.0, 0.0, 6.0, 0.05)
+DEFINE_UI_PARAMS(p_Bezel, Rahmen, DCTLUI_SLIDER_FLOAT, 1.0, 0.0, 6.0, 0.05)
+DEFINE_UI_PARAMS(p_Corner, Eckenradius, DCTLUI_SLIDER_FLOAT, 1.0, 0.0, 6.0, 0.05)
+DEFINE_UI_PARAMS(p_Room, Raumlicht, DCTLUI_SLIDER_FLOAT, 1.0, 0.0, 6.0, 0.05)
+DEFINE_UI_PARAMS(p_RoomCol, Raumfarbe, DCTLUI_COLOR_PICKER, 0.105, 0.085, 0.075)
+
+DEFINE_UI_TOOLTIP(Quellformat, "Seitenverhaeltnis der Bildschirmaufnahme. Der Clip muss eingepasst und zentriert in der Timeline liegen.")
+DEFINE_UI_TOOLTIP(Zoom, "Anteil der Bildschirmbreite, der die Bildbreite fuellt. 1.15 = ganzer Monitor mit Rahmen, 0.4 bis 0.6 = Naheinstellung.")
+DEFINE_UI_TOOLTIP(Mitte X, "Punkt des Bildschirms in der Bildmitte, 0 = links, 1 = rechts. Fuer Kamerafahrten mit Keyframes versehen.")
+DEFINE_UI_TOOLTIP(Mitte Y, "Punkt des Bildschirms in der Bildmitte, 0 = oben, 1 = unten.")
+DEFINE_UI_TOOLTIP(Handkamera, "Staerke des Wackelns. Bewegt sich nur als Effekt (ResolveFX DCTL), nicht als LUT.")
+DEFINE_UI_TOOLTIP(Rolling Shutter, "Untere Zeilen werden spaeter ausgelesen. Macht aus dem Wackeln das typische Wabern.")
+DEFINE_UI_TOOLTIP(Bildrate, "Bildrate der Timeline. Bestimmt das Tempo von Wackeln, Streifen und Fokuspumpen.")
+DEFINE_UI_TOOLTIP(Moire, "Schwebung zwischen Subpixelraster und Sensor. Erscheint nur bei bestimmten Abstaenden, wie in echt. Unscharfer Fokus daempft sie.")
+DEFINE_UI_TOOLTIP(Panel Pixel Breite, "Horizontale Aufloesung des gefilmten Displays.")
+DEFINE_UI_TOOLTIP(Sensor Pixel Breite, "Horizontale Aufloesung des Kamerasensors. 3840 = Handy filmt in 4K.")
+DEFINE_UI_TOOLTIP(Spiegelung, "Weiche Spiegelung eines Fensters auf dem matten Panel. Wandert gegen die Kamerabewegung.")
+DEFINE_UI_TOOLTIP(Refresh Streifen, "Wandernde dunkle Baender aus Rolling Shutter und Hintergrundbeleuchtung.")
+DEFINE_UI_TOOLTIP(Fokus pumpen, "Die Kamera sucht alle paar Sekunden kurz die Schaerfe.")
+
+#define LZ_PI 3.14159265f
+#define LZ_TAU 6.28318531f
+
+__DEVICE__ float lz_fract(float x) { return x - _floorf(x); }
+
+__DEVICE__ float lz_hash(float x, float y)
+{
+    float ax = lz_fract(x * 0.1031f);
+    float ay = lz_fract(y * 0.1031f);
+    float az = lz_fract(x * 0.0973f);
+    float d = ax * (ay + 33.33f) + ay * (az + 33.33f) + az * (ax + 33.33f);
+    ax += d; ay += d; az += d;
+    return lz_fract((ax + ay) * az);
+}
+
+__DEVICE__ float lz_sstep(float a, float b, float x)
+{
+    float t = _saturatef((x - a) / (b - a));
+    return t * t * (3.0f - 2.0f * t);
+}
+
+// Integral 0..x einer Rechteckfolge mit Periode 1, die auf [s, s+w) eins ist
+__DEVICE__ float lz_pulse(float x, float s, float w)
+{
+    float f = _floorf(x);
+    return f * w + _clampf(x - f - s, 0.0f, w);
+}
+
+__DEVICE__ float lz_sinc(float x)
+{
+    float a = LZ_PI * x;
+    if (_fabs(a) < 0.0001f) return 1.0f;
+    return _sinf(a) / a;
+}
+
+// Handzittern: langsame Drift (1/f) plus physiologischer Tremor bei 7 bis 10 Hz. Ergebnis etwa -1.5 .. 1.5
+__DEVICE__ float lz_shake(float t, float seed, float k)
+{
+    float r = 0.0f;
+    r += 1.000f * _sinf(LZ_TAU * (0.23f * k * t + lz_hash(seed, 1.0f)));
+    r += 0.514f * _sinf(LZ_TAU * (0.41f * k * t + lz_hash(seed, 2.0f)));
+    r += 0.265f * _sinf(LZ_TAU * (0.73f * k * t + lz_hash(seed, 3.0f)));
+    r += 0.151f * _sinf(LZ_TAU * (1.19f * k * t + lz_hash(seed, 4.0f)));
+    r += 0.090f * _sinf(LZ_TAU * (1.87f * k * t + lz_hash(seed, 5.0f)));
+    r += 0.054f * _sinf(LZ_TAU * (2.90f * k * t + lz_hash(seed, 6.0f)));
+    r += 0.035f * _sinf(LZ_TAU * (4.30f * k * t + lz_hash(seed, 7.0f)));
+    r += 0.031f * _sinf(LZ_TAU * (7.10f * k * t + lz_hash(seed, 8.0f)));
+    r += 0.022f * _sinf(LZ_TAU * (9.40f * k * t + lz_hash(seed, 9.0f)));
+    return r;
+}
+
+__DEVICE__ float lz_lin(float c) { return _powf(_fmaxf(c, 0.0f), 2.2f); }
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, __TEXTURE__ p_TexR, __TEXTURE__ p_TexG, __TEXTURE__ p_TexB)
+{
+    const float W = (float)p_Width;
+    const float H = (float)p_Height;
+    const float px = (float)p_X + 0.5f;
+    const float py = (float)p_Y + 0.5f;
+    const float unit = W / 1080.0f;
+    const float seed = (float)p_Seed * 7.13f;
+
+    // Wo liegt die Aufnahme im Bild (eingepasst, zentriert)
+    float asp = W / H;
+    if (p_Format == FMT_169) asp = 16.0f / 9.0f;
+    if (p_Format == FMT_1610) asp = 1.6f;
+    if (p_Format == FMT_32) asp = 1.5f;
+    if (p_Format == FMT_43) asp = 4.0f / 3.0f;
+    if (p_Format == FMT_916) asp = 9.0f / 16.0f;
+    float cw = W;
+    float chh = W / asp;
+    if (asp < W / H) { chh = H; cw = H * asp; }
+    const float x0 = (W - cw) * 0.5f;
+    const float y0 = (H - chh) * 0.5f;
+
+    // Zeit; jede Sensorzeile wird etwas spaeter ausgelesen (Rolling Shutter)
+    const float t = (float)TIMELINE_FRAME_INDEX / _fmaxf(p_Fps, 1.0f);
+    const float tr = t + p_RS * 0.012f * (py / H);
+    const float jx = 7.0f * unit * p_Shake * lz_shake(tr, seed, 1.0f);
+    const float jy = 7.0f * unit * p_Shake * lz_shake(tr, seed + 11.0f, 0.93f);
+    const float jr = 0.22f * p_Shake * lz_shake(tr, seed + 23.0f, 1.07f);
+
+    // Sensor -> Bildschirmebene
+    float qx = px - 0.5f * W - jx;
+    float qy = py - 0.5f * H - jy;
+    const float rn2 = (qx * qx + qy * qy) / (0.25f * (W * W + H * H));
+    const float rn = _sqrtf(rn2);
+    const float ds = 1.0f + p_Dist * 0.08f * rn2;
+    qx *= ds; qy *= ds;
+    const float rot = (p_Roll + jr) * 0.0174533f;
+    const float cs = _cosf(rot);
+    const float sn = _sinf(rot);
+    const float zoom = p_Zoom * (1.0f + 0.012f * p_Shake * _sinf(0.7f * t + seed));
+    const float ax = (cs * qx + sn * qy) / W * zoom;
+    const float ay = (-sn * qx + cs * qy) / W * zoom;
+    const float pcx = p_CX - 0.5f + ax;
+    const float pcy = (p_CY - 0.5f) / asp + ay;
+    const float dd = _fmaxf(1.0f + 0.3f * p_TiltX * pcx + 0.3f * p_TiltY * pcy, 0.2f);
+    const float sx = pcx / dd;                 // Bildschirmebene, Einheit Bildschirmbreite, Ursprung Mitte
+    const float sy = pcy / dd;
+    const float u = sx + 0.5f;
+    const float v = sy * asp + 0.5f;
+    const float pxs = zoom / (W * dd);         // Bildschirmbreiten je Ausgabepixel
+    const float fsrc = cw * pxs;               // Quellpixel je Ausgabepixel
+
+    // Bildschirmflaeche und Rahmen als abgerundete Rechtecke
+    const float hx = 0.5f;
+    const float hy = 0.5f / asp;
+    const float rs = 0.004f * p_Corner;
+    const float bxd = _fabs(sx) - hx + rs;
+    const float byd = _fabs(sy) - hy + rs;
+    const float sd = _fminf(_fmaxf(bxd, byd), 0.0f) + _hypotf(_fmaxf(bxd, 0.0f), _fmaxf(byd, 0.0f)) - rs;
+    const float mask = 1.0f - lz_sstep(-pxs, pxs, sd);
+    const float bz = 0.018f * p_Bezel;
+
+    // Schaerfe: Grundunschaerfe, Schaerfentiefe zum Rand, gelegentliches Fokuspumpen
+    const float pph = lz_fract(t / 4.7f + lz_hash(seed, 31.0f));
+    float pump = 0.0f;
+    if (pph < 0.09f) pump = _sinf(LZ_PI * pph / 0.09f);
+    const float bo = unit * (0.45f * p_Soft + 1.6f * p_Soft * lz_sstep(0.55f, 1.25f, rn) + 3.0f * p_Pump * pump);
+    const float rsrc = _sqrtf(0.16f + 0.25f * fsrc * fsrc + bo * bo * fsrc * fsrc);
+
+    // Farbsaum: Rot und Blau liegen radial leicht versetzt
+    const float caK = p_CA * 1.4f * unit * fsrc / (0.5f * _sqrtf(W * W + H * H));
+    const float cax = caK * qx;
+    const float cay = caK * qy;
+
+    const float fx = x0 + _saturatef(u) * cw;
+    const float fy = y0 + _saturatef(v) * chh;
+    const float xmin = x0;
+    const float xmax = x0 + cw - 1.0f;
+    const float ymin = y0;
+    const float ymax = y0 + chh - 1.0f;
+
+    float lr = 0.0f;
+    float lg = 0.0f;
+    float lb = 0.0f;
+    if (mask > 0.0f)
+    {
+        for (int i = 0; i < 12; i++)
+        {
+            const float rr = rsrc * _sqrtf(((float)i + 0.5f) / 12.0f);
+            const float an = (float)i * 2.39996f;
+            const float ox = rr * _cosf(an);
+            const float oy = rr * _sinf(an);
+            const int gx = (int)_clampf(fx + ox, xmin, xmax);
+            const int gy = (int)_clampf(fy + oy, ymin, ymax);
+            const int rx = (int)_clampf(fx + ox + cax, xmin, xmax);
+            const int ry = (int)_clampf(fy + oy + cay, ymin, ymax);
+            const int bx = (int)_clampf(fx + ox - cax, xmin, xmax);
+            const int by = (int)_clampf(fy + oy - cay, ymin, ymax);
+            lr += lz_lin(_tex2D(p_TexR, rx, ry));
+            lg += lz_lin(_tex2D(p_TexG, gx, gy));
+            lb += lz_lin(_tex2D(p_TexB, bx, by));
+        }
+        lr /= 12.0f; lg /= 12.0f; lb /= 12.0f;
+
+        // Hintergrundbeleuchtung und Blickwinkel
+        const float edge = _fminf(_fminf(u, 1.0f - u), _fminf(v, 1.0f - v) / asp);
+        float grad = 1.0f - p_Angle * (0.03f + 0.07f * u + 0.04f * v - 0.03f * _cosf((u - 0.35f) * 3.0f));
+        grad *= 1.0f - 0.10f * p_Angle * _expf(-_fmaxf(edge, 0.0f) / 0.023f);
+        lr *= grad; lg *= grad; lb *= grad;
+
+        // Moire: Subpixelraster gegen Sensorraster
+        if (p_Moire > 0.0f)
+        {
+            const float NX = (float)p_PanelW;
+            const float X = u * NX;
+            const float Y = v * NX / asp;
+            const float K = (float)p_SensorW / W;          // Sensorpixel je Ausgabepixel
+            const float s = 1.0f / (pxs * NX);             // Ausgabepixel je Panelpixel
+            const float pc = 1.0f / (s * K);               // Panelpixel je Sensorpixel
+            const float str = 0.35f * p_Moire;
+            const float lsig = 0.45f + 0.5f * K * (bo / unit - 0.45f * p_Soft);   // nur Zusatzunschaerfe daempft
+            float mr = 1.0f;
+            float mg = 1.0f;
+            float mb = 1.0f;
+            if (pc < 0.5f)
+            {
+                // Makro: das Raster wird aufgeloest, exaktes Flaechenintegral der Subpixel
+                const float f = 0.9f / s;
+                const float sg = 0.3f / s + (bo / unit - 0.45f * p_Soft) / s;
+                const float damp = str * 2.857f * _expf(-2.0f * LZ_PI * LZ_PI * sg * sg);
+                const float cy = (lz_pulse(Y + 0.5f * f, 0.07f, 0.86f) - lz_pulse(Y - 0.5f * f, 0.07f, 0.86f)) / (f * 0.86f);
+                const float cr = (lz_pulse(X + 0.5f * f, 0.020f, 0.29f) - lz_pulse(X - 0.5f * f, 0.020f, 0.29f)) / (f * 0.29f);
+                const float cg = (lz_pulse(X + 0.5f * f, 0.353f, 0.29f) - lz_pulse(X - 0.5f * f, 0.353f, 0.29f)) / (f * 0.29f);
+                const float cb = (lz_pulse(X + 0.5f * f, 0.687f, 0.29f) - lz_pulse(X - 0.5f * f, 0.687f, 0.29f)) / (f * 0.29f);
+                const float dm = _fminf(damp, 1.0f);
+                mr = 1.0f + (cr * cy - 1.0f) * dm;
+                mg = 1.0f + (cg * cy - 1.0f) * dm;
+                mb = 1.0f + (cb * cy - 1.0f) * dm;
+            }
+            else
+            {
+                // Normalfall: die Grundwelle des Rasters faltet am Bayer-Gitter (Abstand 2 Sensorpixel)
+                const float pb = 2.0f * pc;
+                const float m = _floorf(pb + 0.5f);
+                const float lens = _expf(-2.0f * LZ_PI * LZ_PI * lsig * lsig * pc * pc);
+                const float ap = _fabs(lz_sinc(0.8f * pc));
+                const float fo = (pb - m) * K * 0.5f;
+                const float of = _expf(-(fo * fo) / 0.1225f);
+                const float amx = str * 1.732f * lens * ap * of;
+                const float amy = str * 0.305f * lens * ap * of;
+                const float bxp = X - m * (px * K * 0.5f);
+                const float gyv = 1.0f + amy * _cosf(LZ_TAU * (Y - m * (py * K * 0.5f)));
+                mr = (1.0f + amx * _cosf(LZ_TAU * (bxp - 0.165f))) * gyv;
+                mg = (1.0f + amx * _cosf(LZ_TAU * (bxp - 0.498f + 0.25f * m))) * gyv;
+                mb = (1.0f + amx * _cosf(LZ_TAU * (bxp - 0.832f + 0.50f * m))) * gyv;
+            }
+            lr *= mr; lg *= mg; lb *= mb;
+        }
+
+        // Oberflaeche: Schwarzwert, matter Schleier, Fensterspiegelung mit Parallaxe
+        const float gu = (u - (p_GlareX - 0.9f * jx / W)) / 0.20f;
+        const float gv = (v - (p_GlareY - 0.9f * jy / H)) / 0.30f;
+        const float box = _expf(-(_powf(_fabs(gu), 2.6f) + _powf(_fabs(gv), 2.6f)));
+        const float sdg = u * 0.8f + v * 0.6f - 0.60f;
+        const float streak = _expf(-(sdg * sdg) / 0.0098f);
+        const float refl = 0.004f * p_Black + p_Glare * (0.004f + 0.030f * box + 0.010f * streak);
+        lr += refl * 0.94f; lg += refl; lb += refl * 1.06f;
+
+        // Refresh-Streifen: Zeilenauslesung gegen die pulsende Hintergrundbeleuchtung
+        const float band = 1.0f - 0.045f * p_Bands * (0.5f + 0.5f * _cosf(LZ_TAU * (py / H * 2.3f + t * 0.37f)))
+                                - 0.020f * p_Bands * (0.5f + 0.5f * _cosf(LZ_TAU * (py / H * 5.1f - t * 0.61f + 0.3f)));
+        lr *= band; lg *= band; lb *= band;
+    }
+
+    // Raum und Rahmen
+    const float roomV = p_Room * (0.55f + 0.75f * (1.0f - py / H)) * (1.0f - 0.35f * rn);
+    float er = lz_lin(p_RoomCol.x) * roomV;
+    float eg = lz_lin(p_RoomCol.y) * roomV;
+    float eb = lz_lin(p_RoomCol.z) * roomV;
+    if (bz > 0.0f)
+    {
+        const float inb = 1.0f - lz_sstep(bz - pxs, bz + pxs, sd);
+        const float rim = 0.012f * _expf(-_fabs(sd - bz) / (1.5f * pxs)) + 0.006f * _expf(-_fabs(sd) / (1.5f * pxs));
+        const float bzc = 0.0028f + 0.002f * (0.5f - sy * asp);
+        er = _mix(er, bzc + rim, inb);
+        eg = _mix(eg, bzc + rim, inb);
+        eb = _mix(eb, bzc + rim * 1.05f, inb);
+    }
+    float r = _mix(er, lr, mask);
+    float g = _mix(eg, lg, mask);
+    float b = _mix(eb, lb, mask);
+
+    // Bloom und Streulicht: weit gestreute Abgriffe, auch ueber den Bildschirmrand hinaus
+    if (p_Bloom > 0.0f)
+    {
+        const float fxb = x0 + u * cw;
+        const float fyb = y0 + v * chh;
+        const float a0 = LZ_TAU * lz_hash(px + 17.0f * (float)TIMELINE_FRAME_INDEX, py + 0.37f);
+        float vr = 0.0f;
+        float vg = 0.0f;
+        float vb = 0.0f;
+        float hr = 0.0f;
+        float hg = 0.0f;
+        float hb = 0.0f;
+        for (int k = 0; k < 14; k++)
+        {
+            const float rr = 60.0f * unit * fsrc * _sqrtf(((float)k + 0.5f) / 14.0f);
+            const float an = a0 + (float)k * 2.39996f;
+            const float tx = fxb + rr * _cosf(an);
+            const float ty = fyb + rr * _sinf(an);
+            if (tx >= xmin && tx <= xmax && ty >= ymin && ty <= ymax)
+            {
+                const float cr = lz_lin(_tex2D(p_TexR, (int)tx, (int)ty));
+                const float cg = lz_lin(_tex2D(p_TexG, (int)tx, (int)ty));
+                const float cb = lz_lin(_tex2D(p_TexB, (int)tx, (int)ty));
+                vr += cr; vg += cg; vb += cb;
+                hr += _fmaxf(cr - 0.55f, 0.0f);
+                hg += _fmaxf(cg - 0.55f, 0.0f);
+                hb += _fmaxf(cb - 0.55f, 0.0f);
+            }
+        }
+        r += p_Bloom * (0.045f * vr + 0.22f * hr) / 14.0f;
+        g += p_Bloom * (0.045f * vg + 0.22f * hg) / 14.0f;
+        b += p_Bloom * (0.045f * vb + 0.22f * hb) / 14.0f;
+    }
+
+    // Kamera: Vignette, atmende Belichtung, Lichterschulter, Weissabgleich, Saettigung
+    const float vig = 1.0f - 0.30f * p_Vig * _powf(_saturatef(rn - 0.40f), 1.6f);
+    const float flick = 1.0f + p_Shake * (0.012f * _sinf(LZ_TAU * 0.8f * t + seed) + 0.006f * _sinf(LZ_TAU * 2.3f * t));
+    const float gain = 1.04f * _exp2f(p_Exp) * vig * flick;
+    r *= gain; g *= gain; b *= gain;
+    if (r > 0.8f) r = 0.8f + 0.2f * _tanhf((r - 0.8f) / 0.2f);
+    if (g > 0.8f) g = 0.8f + 0.2f * _tanhf((g - 0.8f) / 0.2f);
+    if (b > 0.8f) b = 0.8f + 0.2f * _tanhf((b - 0.8f) / 0.2f);
+    const float gray = (r + g + b) / 3.0f;
+    r = (gray + (r - gray) * p_Sat) * (1.0f - 0.035f * p_Temp);
+    g = gray + (g - gray) * p_Sat;
+    b = (gray + (b - gray) * p_Sat) * (1.0f + 0.035f * p_Temp);
+
+    // Sensorrauschen: Schrotrauschen waechst mit dem Signal, Ausleserauschen ist konstant
+    if (p_Noise > 0.0f)
+    {
+        const float fr = (float)TIMELINE_FRAME_INDEX;
+        const float n0 = lz_hash(px + 31.7f * fr, py + 11.3f * fr) + lz_hash(px + 5.1f * fr + 91.0f, py + 47.9f * fr) + lz_hash(px + 73.3f * fr, py + 3.7f * fr + 57.0f) - 1.5f;
+        const float n1 = lz_hash(px + 13.9f * fr + 7.0f, py + 29.1f * fr) + lz_hash(px + 61.3f * fr, py + 17.7f * fr + 5.0f) - 1.0f;
+        const float n2 = lz_hash(px + 43.1f * fr + 3.0f, py + 71.9f * fr) + lz_hash(px + 19.7f * fr, py + 83.3f * fr + 9.0f) - 1.0f;
+        const float n3 = lz_hash(px + 97.3f * fr + 1.0f, py + 23.3f * fr) + lz_hash(px + 37.9f * fr, py + 59.1f * fr + 2.0f) - 1.0f;
+        r += p_Noise * (1.6f * n0 + 1.5f * n1) * _sqrtf(0.00022f * _saturatef(r) + 0.000004f);
+        g += p_Noise * (1.6f * n0 + 1.5f * n2) * _sqrtf(0.00022f * _saturatef(g) + 0.000004f);
+        b += p_Noise * (1.6f * n0 + 1.5f * n3) * _sqrtf(0.00022f * _saturatef(b) + 0.000004f);
+    }
+
+    return make_float3(_powf(_saturatef(r), 0.4545f), _powf(_saturatef(g), 0.4545f), _powf(_saturatef(b), 0.4545f));
+}
