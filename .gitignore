@@ -1,3 +1,6 @@
 __pycache__/
 *.npy
 .DS_Store
+ofx/build/
+ofx/gen_*
+ofx/test/metaltest
