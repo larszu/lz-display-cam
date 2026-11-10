@@ -22,7 +22,7 @@ def rep(m):
     elif typ in ('DCTLUI_SLIDER_INT', 'DCTLUI_CHECK_BOX'):
         decl.append('static int %s = %s;' % (name, over.get(name, p[3])))
     elif typ == 'DCTLUI_COLOR_PICKER':
-        decl.append('static float3 %s = {%sf, %sf, %sf};' % (name, p[3], p[4], p[5]))
+        decl.append('static struct { float r, g, b; } %s = {%sf, %sf, %sf};' % (name, p[3], p[4], p[5]))
     else:
         decl.append('static float %s = %sf;' % (name, float(over.get(name, p[3]))))
     return ''

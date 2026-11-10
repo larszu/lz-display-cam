@@ -290,9 +290,9 @@ __DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, __TEXTU
 
     // Raum und Rahmen
     const float roomV = p_Room * (0.55f + 0.75f * (1.0f - py / H)) * (1.0f - 0.35f * rn);
-    float er = lz_lin(p_RoomCol.x) * roomV;
-    float eg = lz_lin(p_RoomCol.y) * roomV;
-    float eb = lz_lin(p_RoomCol.z) * roomV;
+    float er = lz_lin(p_RoomCol.r) * roomV;
+    float eg = lz_lin(p_RoomCol.g) * roomV;
+    float eb = lz_lin(p_RoomCol.b) * roomV;
     if (bz > 0.0f)
     {
         const float inb = 1.0f - lz_sstep(bz - pxs, bz + pxs, sd);
