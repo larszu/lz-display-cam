@@ -4,3 +4,5 @@ __pycache__/
 ofx/build/
 ofx/gen_*
 ofx/test/metaltest
+installer/build/
+dist/

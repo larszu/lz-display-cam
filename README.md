@@ -1,54 +1,83 @@
-# lz-display-cam
+# LZ Display Cam
 
-Lässt eine saubere Bildschirmaufnahme aussehen, als hätte eine Handkamera das Display abgefilmt. Zwei Fassungen mit demselben Modell:
+**Screen recordings that look filmed, not captured.**
+A free DaVinci Resolve plugin that turns a clean screen recording into a hand-held shot of a real monitor: the subpixel moiré, the reflection of a window, the refresh bands, the slight wobble of a phone in your hand.
 
-| Ordner | Was | Wofür |
-|---|---|---|
-| `ofx/` | OpenFX-Plugin „LZ Display Cam" für DaVinci Resolve (macOS) | eigener Effekt mit Gruppen und Look-Voreinstellungen |
-| `resolve/LZ_DisplayCam.dctl` | DCTL, zugleich Quelle des Bildkerns | Variante ohne Installation; `ofx/gen.py` erzeugt daraus den Plugin-Kern |
-| `skill/display-cam/` | `rec.py` (UI aufnehmen) + `camlook.py` (Look + Captions) | Skill des Cloud-Agenten „Video explainer maker" |
-| `agent/system.txt` | Anweisungen des Agenten | Stand, der in der Cloud liegt |
+<p align="center">
+  <img src="docs/demo.gif" alt="A screen recording turned into a hand-held shot of a monitor" width="320">
+</p>
 
-## Modell
+![Before and after](docs/vorher-nachher.jpg)
 
-- **Panel:** RGB-Streifen-LCD. Das Subpixelraster wird nicht aufgemalt, sondern mit dem Sensorraster verrechnet. Moiré entsteht als Schwebung, biegt sich mit der Perspektive und erscheint nur bei bestimmten Abständen.
-- **Oberfläche:** Schwarzwert, matter Schleier, Fensterspiegelung mit Parallaxe, Refresh-Streifen.
-- **Optik:** Perspektive, Verzeichnung, Farbsaum, Schärfentiefe, Fokuspumpen, Bloom, Vignette.
-- **Kamera:** Handwackeln (1/f plus Tremor), Rolling Shutter, Belichtung, signalabhängiges Rauschen.
+[**Download for macOS**](https://github.com/larszu/lz-display-cam/releases/latest) · DaVinci Resolve 19.1 or newer · Apple Silicon and Intel
 
-Gerechnet wird in linearem Licht.
+---
 
-## Resolve
+## Why
 
-**Plugin** (empfohlen), im Terminal:
+Product videos, tutorials and reels often show software. A plain screen recording looks flat and synthetic next to camera footage. Filming the monitor for real costs a setup, a tripod and a lot of retakes, and the text ends up unreadable.
 
+LZ Display Cam gives you the filmed look and keeps the recording sharp underneath. You choose the shot afterwards, with keyframes, in the edit.
+
+## What it simulates
+
+Every effect follows the physics of a camera pointed at an LCD, not a texture laid on top.
+
+| | |
+|---|---|
+| **Moiré** | The panel's RGB subpixel grid is sampled by the camera sensor. The beat pattern bends with the perspective and only appears at certain distances, like it does in real life. Softer focus dampens it. |
+| **Reflection** | A soft window reflection on the matte panel. It slides against the camera movement (parallax). |
+| **Refresh bands** | Dark bands from the rolling shutter reading rows while the backlight pulses. |
+| **Hand-held camera** | Slow drift plus physiological tremor at 7–10 Hz. Rolling shutter turns it into the familiar jelly. |
+| **Lens** | Perspective, distortion, chromatic aberration, depth of field, focus hunting, bloom, vignette. |
+| **Sensor** | Exposure breathing, highlight roll-off, white balance, noise that grows with brightness. |
+| **Room** | Monitor bezel with rounded corners in a dark room, all on one projection, so nothing slides against anything else. |
+
+All of it is computed in linear light on the GPU (Metal). A 4K frame takes about 20 ms.
+
+## Install
+
+1. Download `LZ-Display-Cam-<version>.pkg` from the [latest release](https://github.com/larszu/lz-display-cam/releases/latest).
+2. Open it. The package is not notarized: if macOS blocks it, go to **System Settings > Privacy & Security** and click **Open Anyway**.
+3. Restart DaVinci Resolve.
+
+The installer puts the plugin into `/Library/OFX/Plugins` and a DCTL version into Resolve's LUT folder.
+
+## Use
+
+1. Drag **Effects > OpenFX > LZ Medienproduktion > LZ Display Cam** onto your screen recording.
+2. Pick a **Look**: *Handy, dezent* · *Handy, deutlich* · *Stativ, sauber* · *Gerade von vorn* · *Makro auf die Pixel*.
+3. Set **Format der Aufnahme** to the aspect ratio of the recording (for example 16:10).
+4. Frame the shot with **Zoom**, **Bildmitte X** and **Bildmitte Y**. Keyframe them for a camera move: `1.15` shows the whole monitor, `0.4–0.6` is a close-up where UI text stays readable in 9:16.
+
+Every other control sits in a collapsible group: Aufstellung, Handkamera, Display, Spiegelung, Objektiv, Sensor, Umgebung. Hover a label for an explanation.
+
+**Tip:** for vertical reels use a 2160 × 3840 timeline. Resolve scales the clip to the timeline before the effect runs, so close-ups stay sharp only with enough pixels.
+
+## Also included
+
+- **DCTL version** (`resolve/LZ_DisplayCam.dctl`): the same image model as a plain DCTL, for Resolve on Windows and Linux. Apply via *ResolveFX Color > DCTL*. Not as a LUT: the camera movement needs the timeline.
+- **Command-line pipeline** (`skill/display-cam/`): records a web UI with Playwright and renders 9:16 reel scenes with captions in Python. Used by an automated video agent; runs without Resolve.
+
+## Build from source
+
+```bash
+./ofx/build.sh                    # plugin bundle (needs Xcode command line tools and Resolve's OpenFX SDK)
+./ofx/install.sh                  # copy into /Library/OFX/Plugins
+./installer/build-pkg.sh 1.1.0    # installer package into dist/
+python3 ofx/test/run.py image.png out.png p_Format=2 p_Zoom=0.5   # render a still on the GPU without Resolve
 ```
-./ofx/install.sh
-```
 
-Baut bei Bedarf, kopiert nach `/Library/OFX/Plugins` und fragt dafür nach dem Mac-Passwort. Resolve neu starten, dann: Effekte > OpenFX > **LZ Medienproduktion > LZ Display Cam** auf den Clip ziehen. Oben im Inspector steht der `Look` (Handy dezent, Handy deutlich, Stativ sauber, Gerade von vorn, Makro), darunter die Regler in Gruppen. Die Bildrate liest das Plugin selbst aus dem Clip.
+The DCTL is the single source of the image model; `ofx/gen.py` turns it into the Metal and CPU kernels and the plugin's controls.
 
-GPU-Kern ohne Resolve prüfen: `python3 ofx/test/run.py bild.png out.png p_Format=2 p_Zoom=0.5`.
+## Deutsch
 
-**DCTL** (ohne Installation mit Passwort): `./resolve/install.sh`, dann Effekte > OpenFX > ResolveFX Color > DCTL und in der Liste `LZ_DisplayCam` wählen.
+LZ Display Cam ist ein kostenloses Plugin für DaVinci Resolve. Es lässt eine Bildschirmaufnahme aussehen, als hätte eine Handkamera den Monitor abgefilmt: Moiré aus Panel- und Sensorraster, Fensterspiegelung, Refresh-Streifen, leichtes Wackeln, Objektiv und Sensorrauschen. Die Aufnahme bleibt darunter scharf; den Bildausschnitt wählst du im Schnitt per Keyframe.
 
-- Timeline hochkant in 2160×3840 anlegen, Clip eingepasst und zentriert lassen, `Quellformat` auf das Format der Aufnahme stellen. Bei 1080×1920 werden Naheinstellungen weich, weil Resolve den Clip vor dem Effekt auf Timeline-Breite verkleinert.
-- Kamerafahrt: `Zoom`, `Mitte X`, `Mitte Y` mit Keyframes versehen. 1.15 = ganzer Monitor, 0.4 bis 0.6 = nah.
-- Nur DCTL: `Bildrate` auf die Timeline-Bildrate stellen und nicht als LUT anwenden (dort steht die Zeit still).
+Installieren: `.pkg` aus dem [neuesten Release](https://github.com/larszu/lz-display-cam/releases/latest) öffnen, Resolve neu starten, dann **Effekte > OpenFX > LZ Medienproduktion > LZ Display Cam** auf den Clip ziehen und oben einen Look wählen.
 
-Ohne Resolve prüfen: `python3 resolve/test/render.py bild.png out.png p_Format=2 p_Zoom=0.5` übersetzt die DCTL nach C++ und rechnet ein Standbild.
+## Licence
 
-## Skill
+Free to use, also commercially. Source available, not open source: see [LICENSE](LICENSE). Public Sans fonts under the SIL Open Font License.
 
-```
-python3 skill/display-cam/camlook.py --frames DIR --out szene.mp4 --duration 5 \
-  --cam '[[0,0.5,0.5,1.15],[1.6,0.42,0.38,0.5]]' --caption 'Kabelplanung noch in *Excel*?'
-```
-
-Der Skill liegt im Anthropic-Konto als `skill_01StM5zuLudTyo2HtQhQ9yMr`; der Agent nutzt die jeweils neueste Fassung.
-
-## Stand
-
-- Plugin: gebaut (arm64 + x86_64), Bundle lädt, Metal-Kern auf der GPU gerendert (20 ms je Bild in 2160×3840); in Resolve selbst noch nicht geöffnet.
-- DCTL: über das Testgerüst gerendert; in einer echten Timeline noch nicht angesehen.
-- `camlook.py` lokal gerendert; `rec.py` und der Agent mit dem Skill sind noch nicht gelaufen.
+Made by **Lars Zumpe Medienproduktion** · [zumpelars.de](https://zumpelars.de)

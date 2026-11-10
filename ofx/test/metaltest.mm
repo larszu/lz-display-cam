@@ -16,8 +16,7 @@ int main(int argc, char** argv)
         P.width = W; P.height = H; P.frame = atoi(argv[5]);
         for (int i = 6; i < argc; i++) {
             std::string a(argv[i]); const size_t e = a.find('='); const std::string k = a.substr(0, e); const float v = atof(a.c_str() + e + 1);
-            if (k == "p_Format") P.p_Format = (int)v; else if (k == "p_Zoom") P.p_Zoom = v; else if (k == "p_CX") P.p_CX = v; else if (k == "p_CY") P.p_CY = v;
-            else if (k == "p_TiltX") P.p_TiltX = v; else if (k == "p_Moire") P.p_Moire = v; else if (k == "p_Shake") P.p_Shake = v;
+#include "../gen_setparam.inc"
         }
         id<MTLDevice> dev = MTLCreateSystemDefaultDevice();
         NSError* err = nil;

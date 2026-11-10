@@ -156,6 +156,13 @@ for n in order:
     else: df.append('    P.%s = %s;' % (n, a[0]))
 df.append('}')
 open(os.path.join(here, 'gen_defaults.inc'), 'w').write('\n'.join(df) + '\n')
+sp = []
+for n in order:
+    t = P[n]['typ']
+    if t == 'DCTLUI_COLOR_PICKER': continue
+    cast = '(int)v' if t in ('DCTLUI_SLIDER_INT', 'DCTLUI_COMBO_BOX', 'DCTLUI_CHECK_BOX') else 'v'
+    sp.append('if (k == "%s") P.%s = %s;' % (n, n, cast))
+open(os.path.join(here, 'gen_setparam.inc'), 'w').write('\n'.join(sp) + '\n')
 open(os.path.join(here, 'gen_describe.inc'), 'w').write('\n'.join(d) + '\n')
 open(os.path.join(here, 'gen_fetch.inc'), 'w').write('\n'.join(f) + '\n')
 open(os.path.join(here, 'gen_presets.inc'), 'w').write('\n'.join(pr) + '\n')
