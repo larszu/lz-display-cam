@@ -88,7 +88,10 @@ void LZDisplayCam::render(const OFX::RenderArguments& p_Args)
     P.width = b.x2 - b.x1;
     P.height = b.y2 - b.y1;
     P.frame = (int)(t + 0.5);
-    const double fps = m_SrcClip->getFrameRate();
+    // Fusion kennt die Bildrate am Clip nicht (kOfxStatErrMissingHostFeature) -> Effekt, dann 30.
+    double fps = 0.0;
+    try { fps = m_SrcClip->getFrameRate(); } catch (...) { fps = 0.0; }
+    if (fps <= 1.0) { try { fps = getFrameRate(); } catch (...) { fps = 0.0; } }
     P.p_Fps = (fps > 1.0) ? (float)fps : 30.0f;
 
     proc.setDstImg(dst.get());
